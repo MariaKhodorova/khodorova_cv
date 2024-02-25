@@ -8,7 +8,7 @@ b = np.zeros((5,5))
 
 assert b.shape == (5, 5) and b.sum() == 0      
 
-c = np.ones((3))
+c = np.ones((3, 1, 1))
 
 assert c.ndim == 3 and c.sum() / c.size == 1     
 
@@ -54,7 +54,7 @@ mc = m.std()
 assert mc == 0.5
 
 n = np.array([1, 2, 3, 4, 5, 6])
-nc = np.mean(n)                          #среднее значение
+nc = n.mean()                          #среднее значение
 
 assert nc == 3.5
 
