@@ -1,96 +1,73 @@
 import cv2 
 from mss import mss
 import numpy as np
-from time import sleep, time
-import pyautogui 
-from skimage.morphology import closing,disk
-  
-trex = cv2.imread("trex/trex.png")
-trex = cv2.cvtColor(trex, cv2.COLOR_RGB2GRAY)
-  
-   
-bbox = {'top': 250, 'left': 100, 'width': 700, 'height': 200}
-    
-frame_rate = 120
-frame_duration = 1.0 / frame_rate
-  
-with mss() as sct:    
-    pyautogui.press("space")
-    sleep(2) 
-  
-    # Захват изображ ения
-    img = np.array(sct.grab(bbox)) 
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-  
-    # Ищем динозаврика
-    _, _, t_min_loc, t_max_loc = cv2.minMaxLoc(cv2.matchTemplate(img, trex, cv2.TM_SQDIFF_NORMED))
-    bbox = { 
-        "top": t_min_loc[1] - 96,
-        "left": t_min_loc[0] - 4,
-        "width": 300,
-        "height": 150,
-    }
-  
-    img = np.array(sct.grab(bbox))
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+import pyautogui
+import time
 
-    _, thrash, t_min_loc, t_max_loc = cv2.minMaxLoc(cv2.matchTemplate(img, trex, cv2.TM_SQDIFF_NORMED))
+bounding_box = {'top': 250, 'left': 100, 'width': 700, 'height': 200}
+sct = mss()
 
-    start = time()
-    timer = 0
+dino_position = 100
 
-    while True:
-        frame_start_time = time()
+# Функция для определения расстояния прыжка в зависимости от времени игры
+def get_jump_distance(score):
+    if score < 100:
+        return 120
+    elif score < 500:
+        return 140
+    else:
+        return 160
 
-        image = np.array(sct.grab(bbox))
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+# Функция для проверки наличия двойного препятствия
+def is_double_obstacle(cnts, first_obstacle_x):
+    for cnt in cnts:
+        x, _, w, h = cv2.boundingRect(cnt)
+        aspect_ratio = w / float(h)
+        if w < 60 and h < 40 or aspect_ratio > 1.0:
+            continue
+        # Если следующее препятствие находится слишком близко к первому, считаем их двойным
+        if x > first_obstacle_x and (x - first_obstacle_x) < 100:
+            return True
+    return False
 
-        _, image = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
+pyautogui.press("space")  # Начинаем игру
+score = 0
+start_time = time.time()
 
-        enemy = image[:, int(image.shape[1] * 0.3) :]
-        enemy = enemy[: int(enemy.shape[0] * 0.855), :]
-        enemy = closing(enemy, disk(3))
+while True:
+    image = sct.grab(bounding_box)
+    image = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
+    (thresh, image) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
 
-        contours, _ = cv2.findContours(enemy, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts, _ = cv2.findContours(image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = sorted(cnts, key=lambda x: cv2.boundingRect(x)[0])  # Сортируем контуры по их положению по оси X
 
-        for contour in contours:
-            # Получаем координаты ограничивающего прямоугольника для текущего контура
-            x, y, w, h = cv2.boundingRect(contour)
+    # Определяем положение ближайшего препятствия
+    for i, cnt in enumerate(cnts):
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect_ratio = w / float(h)
 
-            if time() - start < 45: agr = 30
-            else: agr = 45
-   
-            timer = min(time() - start, 330)
+        if w < 60 and h < 40 or aspect_ratio > 1.0:
+            continue
+        obstacle_position = x
+        # Обновляем счет в зависимости от времени игры
+        current_time = time.time()
+        score = int((current_time - start_time) * 10)
 
-            if x <= agr:
-                if y + h - t_min_loc[1] - 20 > 0:
-                    sleeper = (w) * 25 / (1000 + timer * 40)
- 
-                    if y - t_min_loc[1] >= -10:
-                        sleeper += 0.1
-
-                    pyautogui.press("up")
-                    sleep(sleeper/4)
-                    pyautogui.keyDown("down")
-                    sleep(0.015)
-                    pyautogui.keyUp("down")
-                else:
-                    pyautogui.keyDown("down")
-                    sleep(abs(sleeper-0.03))
-                    pyautogui.keyUp("down")
-  
-          
-        frame_end_time = time()
-        elapsed_time = frame_end_time - frame_start_time
-
-        if elapsed_time < frame_duration:
-            sleep(frame_duration - elapsed_time)  
-
-        if cv2.waitKey(1) == ord("q"):
+        jump_distance = get_jump_distance(score)
+        if obstacle_position > dino_position and (obstacle_position - dino_position) < jump_distance:
+            pyautogui.press("space")  # Прыгаем, если препятствие достаточно близко
+            # Проверяем, есть ли следующее препятствие
+            if is_double_obstacle(cnts[i+1:], x):
+                time.sleep(0.1)  # Короткая пауза перед вторым прыжком
+                pyautogui.press("space")
+            time.sleep(0.3)  # Пауза, чтобы избежать множественных прыжков
             break
-       
-        cv2.imshow('Image', enemy)
- 
-cv2.destroyAllWindows()
 
-# max - 6728
+    cv2.imshow('Image', image)
+    key = cv2.waitKey(1)
+
+    if key == ord("q"):
+        break
+
+# max - 575
